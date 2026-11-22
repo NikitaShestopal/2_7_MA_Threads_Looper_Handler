@@ -45,8 +45,8 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        viewModel.isRolling.observe(this) { isRolling ->
-            binding.rollButton.isEnabled = !isRolling
+        viewModel.buttonText.observe(this) { text ->
+            binding.rollButton.text = text
         }
     }
 }

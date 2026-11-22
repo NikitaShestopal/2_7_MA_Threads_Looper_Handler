@@ -3,72 +3,40 @@ package com.example.dice
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
-import java.util.concurrent.CopyOnWriteArrayList
-import java.util.concurrent.atomic.AtomicInteger
-import kotlin.concurrent.thread
-import kotlin.random.Random
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 
 class DiceViewModel : ViewModel() {
 
-    companion object {
-        private const val DICE_COUNT = 5
-        private const val TICK_DELAY_MS = 100L
-    }
+    private val diceModel = DiceModel()
+    private val currentValues = IntArray(DiceModel.DICE_COUNT) { 6 }
 
-    private val _diceValues = MutableLiveData(List(DICE_COUNT) { 6 })
+    private val _diceValues = MutableLiveData(currentValues.toList())
     val diceValues: LiveData<List<Int>> get() = _diceValues
 
     private val _isRolling = MutableLiveData(false)
     val isRolling: LiveData<Boolean> get() = _isRolling
 
-    private val lock = Any()
-    private val currentValues = IntArray(DICE_COUNT) { 6 }
-    private val activeThreads = CopyOnWriteArrayList<Thread>()
+    private val _buttonText = MutableLiveData("ROLL")
+    val buttonText: LiveData<String> get() = _buttonText
 
-    @Volatile
-    private var isCleared = false
+    private var rollJob: Job? = null
 
     fun rollDice() {
-        if (_isRolling.value == true) return
-        _isRolling.value = true
+        rollJob?.cancel()
 
-        activeThreads.clear()
-        val remainingThreads = AtomicInteger(DICE_COUNT)
+        rollJob = viewModelScope.launch {
+            _isRolling.value = true
+            _buttonText.value = "RESTART"
 
-        for (index in 0 until DICE_COUNT) {
-            val iterations = Random.nextInt(15, 31)
-
-            val worker = thread(start = false, name = "DiceThread-$index") {
-                try {
-                    repeat(iterations) {
-                        if (isCleared || Thread.currentThread().isInterrupted) return@thread
-
-                        val newValue = Random.nextInt(1, 7)
-                        val snapshot = synchronized(lock) {
-                            currentValues[index] = newValue
-                            currentValues.toList()
-                        }
-                        _diceValues.postValue(snapshot)
-
-                        Thread.sleep(TICK_DELAY_MS)
-                    }
-                } catch (_: InterruptedException) {
-                    Thread.currentThread().interrupt()
-                } finally {
-                    if (remainingThreads.decrementAndGet() == 0 && !isCleared) {
-                        _isRolling.postValue(false)
-                    }
-                }
+            diceModel.rollAllDice(DiceModel.DICE_COUNT) { index, value ->
+                currentValues[index] = value
+                _diceValues.value = currentValues.toList()
             }
-            activeThreads.add(worker)
-            worker.start()
-        }
-    }
 
-    override fun onCleared() {
-        super.onCleared()
-        isCleared = true
-        activeThreads.forEach { it.interrupt() }
-        activeThreads.clear()
+            _isRolling.value = false
+            _buttonText.value = "ROLL"
+        }
     }
 }
